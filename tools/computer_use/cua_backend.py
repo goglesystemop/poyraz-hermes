@@ -413,6 +413,21 @@ class CuaDriverBackend(_CaptureMixin, _InputMixin, ComputerUseBackend):
         if token and (self._session.supports_input_property(name, "element_token")
                       or self._session.supports_capability("accessibility.element_tokens", tool=name)):
             args["element_token"] = token
+            # Modern drivers remove the legacy index from their strict schema.
+            # The snapshot token already carries the observed element identity;
+            # retaining element_index makes the whole request fail validation.
+            if not self._session.supports_input_property(name, "element_index"):
+                args.pop("element_index", None)
+        if ("element_index" in args and getattr(self._session, "capabilities_discovered", False)
+                and not self._session.supports_input_property(name, "element_index")):
+            # A markdown-only observation may have an index but no native token.
+            # Never invent a token or dispatch a property the live driver rejects.
+            return ActionResult(ok=False, action=name, code="element_reference_unavailable",
+                                effect="suspected_noop", escalation={"recommended": "px"},
+                                meta={"driver_invoked": False},
+                                message="No driver input was dispatched. This driver needs a fresh element token; "
+                                        "the observed index has none. Re-capture a screenshot and target "
+                                        "an observed pixel coordinate instead.")
         if inject_session:  # setdefault preserves any explicit session a caller already supplied
             args.setdefault("session", self._session_id)
         try:
